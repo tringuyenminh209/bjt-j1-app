@@ -1,0 +1,73 @@
+name: Build private IPA on public runner
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: private-ipa
+  cancel-in-progress: false
+jobs:
+  build:
+    if: github.repository_owner == 'tringuyenminh209' && github.actor == 'tringuyenminh209'
+    runs-on: macos-14
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read private learning data
+        uses: actions/checkout@v4
+        with:
+          repository: tringuyenminh209/bjt-j1
+          ssh-key: ${{ secrets.PRIVATE_DATA_SSH_KEY }}
+          path: private-data
+          fetch-depth: 0
+      - name: Import assets into the build workspace
+        run: cp -R ../private-data/mobile/assets ./assets
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.32.5'
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter analyze
+      - run: flutter test
+      - name: Build unsigned device app
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: >-
+          flutter build ios --release --no-codesign
+          --dart-define="SUPABASE_URL=$SUPABASE_URL"
+          --dart-define="SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY"
+      - name: Package for Sideloadly
+        run: |
+          mkdir -p build/ipa/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ipa/Payload/
+          cd build/ipa
+          zip -q -r BJT-J1-unsigned.ipa Payload
+      - name: Store IPA in the private repository
+        # ponytail: binary history grows per build; use private object storage if builds become frequent.
+        run: |
+          private="$GITHUB_WORKSPACE/private-data"
+          store="$RUNNER_TEMP/ipa-store"
+          git -C "$private" config user.name "BJT build"
+          git -C "$private" config user.email "bjt-build@users.noreply.github.com"
+          if git -C "$private" show-ref --verify --quiet refs/remotes/origin/ipa-builds; then
+            git -C "$private" worktree add --detach "$store" origin/ipa-builds
+          else
+            git -C "$private" worktree add --detach "$store" HEAD
+            git -C "$store" checkout --orphan ipa-builds
+            git -C "$store" rm -r -f --quiet .
+          fi
+          cp build/ipa/BJT-J1-unsigned.ipa "$store/BJT-J1-unsigned.ipa"
+          printf 'Private IPA for Sideloadly. Build: %s\n' "$GITHUB_RUN_ID" > "$store/README.txt"
+          git -C "$store" add BJT-J1-unsigned.ipa README.txt
+          if ! git -C "$store" diff --cached --quiet; then
+            git -C "$store" commit -m "build: iOS IPA $GITHUB_RUN_ID"
+            git -C "$store" push origin HEAD:refs/heads/ipa-builds
+          fi
+          echo 'IPA: https://github.com/tringuyenminh209/bjt-j1/blob/ipa-builds/BJT-J1-unsigned.ipa' >> "$GITHUB_STEP_SUMMARY"
