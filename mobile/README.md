@@ -19,6 +19,15 @@ https://github.com/settings/billing để xử lý tài khoản, rồi Run workf
 Đây là lỗi trước khi runner khởi chạy, chưa phải lỗi biên dịch app.
 
 ## Google Login / Supabase Free
+File `.env` nằm ở thư mục gốc repo code (bên cạnh `mobile/`), đã gitignore.
+Điền `SUPABASE_URL` và `SUPABASE_ANON_KEY`; có thể dùng publishable key cho key thứ hai.
+Flutter đọc file lúc build, không cần thêm thư viện dotenv. Từ `mobile/`, dùng:
+```sh
+flutter run --dart-define-from-file=../.env
+```
+GitHub Actions dùng hai secrets cùng tên; file `.env` local không tự upload lên GitHub.
+Google Client ID/Secret chỉ nhập trong Supabase Auth, không đóng gói vào app.
+
 App chạy offline khi chưa cấu hình. Để bật Google và đồng bộ:
 1. Tạo Supabase project và áp dụng `supabase/migrations/202610080001_learning_progress.sql`
    bằng migration runner / SQL Editor khi khởi tạo project.
